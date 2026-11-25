@@ -126,6 +126,9 @@ footer a:hover{color:var(--acid)}
 .lb-thumbs img.on{opacity:1;border-color:var(--acid)}
 .lb-thumb3d{width:74px;height:48px;display:grid;place-items:center;border:1px solid var(--line);cursor:pointer;opacity:.55;font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--dim);background:#14160f}
 .lb-thumb3d.on{opacity:1;border-color:var(--acid);color:var(--acid)}
+.lb-thumbvid{width:74px;height:48px;display:grid;place-items:center;border:1px solid var(--line);cursor:pointer;opacity:.55;font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--dim);background:#0e1418}
+.lb-thumbvid.on{opacity:1;border-color:var(--acid);color:var(--acid)}
+.lb-inner video.lb-main{width:100%;max-height:78vh;aspect-ratio:auto;background:#000;object-fit:contain}
 .lb-3dwrap{width:100%;border:1px solid var(--line)}
 .lb-3dwrap iframe{width:100%;height:min(72vh,760px);display:block;border:0;background:#080808}
 .lb-3dfallback{display:inline-block;margin-top:10px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--dim);border-bottom:1px solid var(--line);padding-bottom:3px}
@@ -381,6 +384,26 @@ function detectImages(w){
   });
 }
 
+/* 探测同名视频：与图片同文件夹、同编号，格式为 01.mp4 / 02.mp4……
+   即 01.jpg 配 01.mp4，放在 assets/works/01/ 下 */
+function detectVideos(w){
+  const dir = "assets/works/" + w.id + "/";
+  return new Promise(resolve => {
+    const found = [];
+    let pending = 25;
+    for (let i = 1; i <= 25; i++){
+      const v = document.createElement("video");
+      const n = String(i).padStart(2,"0");
+      const src = dir + n + ".mp4";
+      v.onloadedmetadata = () => { found.push({ i, src }); done(); };
+      v.onerror = () => done();
+      v.preload = "metadata";
+      v.src = src;
+    }
+    function done(){ if (--pending === 0){ found.sort((a,b)=>a.i-b.i); resolve(found.map(f=>({ type:"video", src:f.src }))); } }
+  });
+}
+
 function renderGallery(){
   if (!gallery.length) return;
   const stage = $("lbStage"), item = gallery[galleryIdx];
@@ -390,6 +413,8 @@ function renderGallery(){
         '<iframe src="' + item.embed + '" frameborder="0" allow="autoplay; fullscreen; xr-spatial-tracking" allowfullscreen></iframe>' +
         '<a class="lb-3dfallback" href="' + item.src + '" target="_blank" rel="noopener">加载不出来？在新窗口打开 ↗</a>' +
       '</div>'
+    : item.type === "video"
+    ? '<video class="lb-main" src="' + item.src + '" controls playsinline preload="metadata"></video>'
     : '<img class="lb-main" src="' + item.src + '" alt="预览">';
   stage.innerHTML =
     '<button class="lb-nav lb-prev" data-dir="-1">‹</button>' +
@@ -398,9 +423,11 @@ function renderGallery(){
     '<div class="lb-thumbs">' + gallery.map((it,i) =>
       it.type === "3d"
         ? '<div class="lb-thumb3d' + (i===galleryIdx?" on":"") + '" data-i="' + i + '">3D</div>'
+        : it.type === "video"
+        ? '<div class="lb-thumbvid' + (i===galleryIdx?" on":"") + '" data-i="' + i + '">VIDEO</div>'
         : '<img src="' + it.src + '" data-i="' + i + '" class="' + (i===galleryIdx?"on":"") + '">').join("") + '</div>' +
     '<div class="lb-count">' + String(galleryIdx+1).padStart(2,"0") + " / " + String(gallery.length).padStart(2,"0") +
-      (item.type === "3d" ? " · 可旋转 3D 模型" : "") + '</div>';
+      (item.type === "3d" ? " · 可旋转 3D 模型" : item.type === "video" ? " · 视频" : "") + '</div>';
   stage.querySelectorAll("[data-dir]").forEach(b =>
     b.addEventListener("click", () => { galleryIdx = (galleryIdx + Number(b.dataset.dir) + gallery.length) % gallery.length; renderGallery(); }));
   stage.querySelectorAll("[data-i]").forEach(t =>
@@ -414,9 +441,11 @@ async function openLightbox(id){
   gallery = []; galleryIdx = 0;
 
   if (w.embed) {
-    // 图片在前，3D 作为最后一项；若只有 3D 没有图则直接显示 3D
+    // 顺序：图片 → 同名视频 → 3D
     stage.innerHTML = '<div class="mono" style="text-align:center;padding:40px">LOADING…</div>';
     gallery = await detectImages(w);
+    const vids = await detectVideos(w);
+    gallery = gallery.concat(vids);
     gallery.push({ type:"3d", src:(w.url || w.embed), embed:w.embed, poster:coverOf(w) });
     renderGallery();
   } else if (w.url && /^https?:\/\//.test(w.url)) {
@@ -426,8 +455,11 @@ async function openLightbox(id){
   } else if (src) {
     stage.innerHTML = '<video src="' + src + '" controls autoplay playsinline></video>';
   } else {
+    // 纯作品：图片 → 同名视频（01.jpg 配 01.mp4）
     stage.innerHTML = '<div class="mono" style="text-align:center;padding:40px">LOADING…</div>';
     gallery = await detectImages(w);
+    const vids = await detectVideos(w);
+    gallery = gallery.concat(vids);
     renderGallery();
   }
   $("lbTitle").textContent = w.title + " — " + w.tag;
